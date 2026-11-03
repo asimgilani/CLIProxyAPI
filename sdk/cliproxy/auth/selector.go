@@ -841,7 +841,11 @@ func (s *ResetSoonestSelector) Pick(ctx context.Context, provider, model string,
 		return nil, err
 	}
 	available = preferCodexWebsocketAuths(ctx, provider, available)
-	return soonestResetAuth(available, now), nil
+	picked := soonestResetAuth(available, now)
+	if picked != nil {
+		log.Debugf("reset-soonest picked %s (7d reset %s) from %d candidates", picked.ID, weeklyResetTime(picked, now).Format(time.RFC3339), len(available))
+	}
+	return picked, nil
 }
 
 // soonestResetAuth orders unknown resets first, then known resets ascending, then by ID.
