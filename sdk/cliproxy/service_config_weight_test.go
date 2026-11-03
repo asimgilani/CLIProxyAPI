@@ -75,3 +75,24 @@ func TestApplyManagerConfigStopsReplacedServiceAffinitySelector(t *testing.T) {
 		t.Fatal("expected replaced selector to be stopped during routing config apply")
 	}
 }
+
+func TestResetSoonestRoutingSelector(t *testing.T) {
+	for _, strategy := range []string{"reset-soonest", "resetsoonest", "rs"} {
+		state := normalizedRoutingRuntimeState(&internalconfig.Config{
+			Routing: internalconfig.RoutingConfig{Strategy: strategy},
+		})
+		if state.strategy != "reset-soonest" {
+			t.Fatalf("strategy(%q) = %q, want reset-soonest", strategy, state.strategy)
+		}
+		if _, ok := newRoutingSelector(state).(*coreauth.ResetSoonestSelector); !ok {
+			t.Fatalf("selector type = %T, want *auth.ResetSoonestSelector", newRoutingSelector(state))
+		}
+	}
+
+	state := normalizedRoutingRuntimeState(&internalconfig.Config{
+		Routing: internalconfig.RoutingConfig{Strategy: "reset-soonest", SessionAffinity: true},
+	})
+	if _, ok := newRoutingSelector(state).(*coreauth.SessionAffinitySelector); !ok {
+		t.Fatalf("selector type with session affinity = %T, want *auth.SessionAffinitySelector", newRoutingSelector(state))
+	}
+}

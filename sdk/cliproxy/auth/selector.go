@@ -72,6 +72,14 @@ func weightedSelectorStateModel(ctx context.Context, availabilityModel string) s
 // rolling-window subscription caps (e.g. chat message limits).
 type FillFirstSelector struct{}
 
+// ResetSoonestSelector burns the credential whose Anthropic 7-day usage window resets
+// soonest, so staggered weekly windows are drained in the order they roll over.
+// Credentials with no usable reset signal sort first; the reset time is learned from
+// their next response, so a never-observed credential cannot starve.
+type ResetSoonestSelector struct {
+	now func() time.Time
+}
+
 type blockReason int
 
 const (
@@ -819,6 +827,68 @@ func (s *FillFirstSelector) Pick(ctx context.Context, provider, model string, op
 	}
 	available = preferCodexWebsocketAuths(ctx, provider, available)
 	return available[0], nil
+}
+
+// Pick selects the available auth whose weekly window resets soonest.
+func (s *ResetSoonestSelector) Pick(ctx context.Context, provider, model string, opts cliproxyexecutor.Options, auths []*Auth) (*Auth, error) {
+	_ = opts
+	now := time.Now()
+	if s != nil && s.now != nil {
+		now = s.now()
+	}
+	available, err := getSelectorAvailableAuths(ctx, auths, provider, model, now)
+	if err != nil {
+		return nil, err
+	}
+	available = preferCodexWebsocketAuths(ctx, provider, available)
+	return soonestResetAuth(available, now), nil
+}
+
+// soonestResetAuth orders unknown resets first, then known resets ascending, then by ID.
+func soonestResetAuth(auths []*Auth, now time.Time) *Auth {
+	var best *Auth
+	var bestReset time.Time
+	for _, auth := range auths {
+		if auth == nil {
+			continue
+		}
+		reset := weeklyResetTime(auth, now)
+		if best == nil || resetSoonerThan(reset, auth.ID, bestReset, best.ID) {
+			best, bestReset = auth, reset
+		}
+	}
+	return best
+}
+
+func resetSoonerThan(aReset time.Time, aID string, bReset time.Time, bID string) bool {
+	if aReset.IsZero() != bReset.IsZero() {
+		return aReset.IsZero()
+	}
+	if !aReset.Equal(bReset) {
+		return aReset.Before(bReset)
+	}
+	return aID < bID
+}
+
+// weeklyResetTime returns the observed 7d reset, or the zero time when it is missing,
+// unparseable, or already past (the window rolled over and the next reset is unknown).
+func weeklyResetTime(auth *Auth, now time.Time) time.Time {
+	raw := strings.TrimSpace(auth.Quota.Signals["Anthropic-Ratelimit-Unified-7d-Reset"])
+	if raw == "" {
+		return time.Time{}
+	}
+	var reset time.Time
+	if sec, err := strconv.ParseFloat(raw, 64); err == nil && sec > 0 {
+		reset = time.Unix(int64(sec), 0)
+	} else if parsed, err := time.Parse(time.RFC3339, raw); err == nil {
+		reset = parsed
+	} else {
+		return time.Time{}
+	}
+	if !reset.After(now) {
+		return time.Time{}
+	}
+	return reset
 }
 
 func isAuthBlockedForModel(auth *Auth, model string, now time.Time) (bool, blockReason, time.Time) {
