@@ -1,5 +1,9 @@
 # CLI Proxy API
 
+> **asimgilani fork.** The `omarchy` branch adds the `reset-soonest` routing strategy. It sends traffic to the Claude account whose 7-day usage window resets soonest, so expiring quota gets used first. The proxy on dev-omarchy runs a build of this branch with `routing.strategy: "reset-soonest"`.
+>
+> **Do not install stock upstream releases on dev-omarchy.** They lack this strategy and fall back to round-robin. To update, merge the new upstream tag into `omarchy`, then run `go test ./sdk/cliproxy/auth/...`. Build with `GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "-s -w -X main.Version=<tag>-resetsoonest -X main.Commit=<sha> -X main.BuildDate=<utc>" ./cmd/server`. Install the binary into `~/.local/share/cliproxyapi-private/releases/<version>/` on omarchy and point `~/.config/systemd/user/cliproxyapi-private.service` at it.
+
 English | [中文](README_CN.md) | [日本語](README_JA.md)
 
 If you want to use CLIProxyAPI on your desktop, we recommend our [EasyCLIProxyAPI](https://github.com/router-for-me/EasyCLIProxyAPI) desktop client. It provides a graphical configuration UI, automatic updates, system tray integration, and one-click start/stop for the CLIProxyAPI service.
